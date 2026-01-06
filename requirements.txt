@@ -1,0 +1,48 @@
+# Docker container requirements (AI agents only - NO PySC2)
+# PySC2 and StarCraft 2 game run on the host machine
+
+# Machine Learning
+torch>=2.0.0
+torchvision>=0.15.0
+numpy>=1.24.0
+scipy>=1.11.0
+
+# Reinforcement Learning
+stable-baselines3>=2.2.0
+gymnasium>=0.29.0
+
+# Data processing and visualization
+matplotlib>=3.7.0
+pandas>=2.0.0
+
+# Communication and API
+absl-py>=1.4.0
+protobuf>=4.24.0
+
+# Web API for communication with host
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.0
+python-multipart>=0.0.6
+httpx>=0.26.0
+websockets>=12.0
+aiohttp>=3.9.0
+
+# Metrics and monitoring
+prometheus-client>=0.19.0
+prometheus-fastapi-instrumentator>=6.1.0
+
+# Caching and state management
+redis>=5.0.1
+
+# Logging and debugging
+python-json-logger>=2.0.7
+
+# Configuration
+pyyaml>=6.0.1
+python-dotenv>=1.0.0
+
+# Utilities
+requests>=2.31.0
+tqdm>=4.66.0
+click>=8.1.0

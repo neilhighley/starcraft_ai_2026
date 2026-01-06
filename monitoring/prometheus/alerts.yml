@@ -1,0 +1,101 @@
+groups:
+  - name: starcraft_ai_alerts
+    interval: 30s
+    rules:
+      # Agent health alerts
+      - alert: AIAgentDown
+        expr: up{job=~"sc2-ai-agent-.*"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "AI Agent {{ $labels.agent_id }} is down"
+          description: "AI Agent {{ $labels.agent_id }} has been down for more than 1 minute"
+
+      # Agent performance alerts
+      - alert: HighLatency
+        expr: sc2_agent_decision_time_seconds > 1.0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High latency on Agent {{ $labels.agent_id }}"
+          description: "Agent {{ $labels.agent_id }} decision time is {{ $value }}s"
+
+      - alert: CriticalLatency
+        expr: sc2_agent_decision_time_seconds > 5.0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical latency on Agent {{ $labels.agent_id }}"
+          description: "Agent {{ $labels.agent_id }} decision time is {{ $value }}s"
+
+      # Win rate monitoring
+      - alert: LowWinRate
+        expr: rate(sc2_agent_wins_total[10m]) < 0.3
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent {{ $labels.agent_id }} has low win rate"
+          description: "Agent {{ $labels.agent_id }} win rate is {{ $value | humanizePercentage }}"
+
+      # Resource usage alerts
+      - alert: HighCPUUsage
+        expr: rate(sc2_agent_cpu_usage_seconds_total[5m]) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on Agent {{ $labels.agent_id }}"
+          description: "Agent {{ $labels.agent_id }} is using {{ $value | humanizePercentage }} CPU"
+
+      - alert: HighMemoryUsage
+        expr: sc2_agent_memory_usage_bytes / 1024 / 1024 / 1024 > 4
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on Agent {{ $labels.agent_id }}"
+          description: "Agent {{ $labels.agent_id }} is using {{ $value }}GB memory"
+
+      # Action monitoring
+      - alert: NoActions
+        expr: rate(sc2_agent_actions_total[1m]) == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Agent {{ $labels.agent_id }} not taking actions"
+          description: "Agent {{ $labels.agent_id }} has not taken any actions for 2 minutes"
+
+      # Game connection alerts
+      - alert: GameConnectionLost
+        expr: sc2_agent_connected == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Agent {{ $labels.agent_id }} lost connection to game"
+          description: "Agent {{ $labels.agent_id }} is not connected to the game server"
+
+  - name: game_state_alerts
+    interval: 30s
+    rules:
+      - alert: GameInProgressTooLong
+        expr: sc2_game_duration_seconds > 3600
+        labels:
+          severity: warning
+        annotations:
+          summary: "Game duration exceeds 1 hour"
+          description: "Current game has been running for {{ $value | humanizeDuration }}"
+
+      - alert: TooManyErrors
+        expr: rate(sc2_agent_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate on Agent {{ $labels.agent_id }}"
+          description: "Agent {{ $labels.agent_id }} has {{ $value }} errors per second"

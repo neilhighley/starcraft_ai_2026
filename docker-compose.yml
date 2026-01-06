@@ -1,0 +1,149 @@
+version: '3.8'
+
+services:
+  ai-agent-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.ai
+    container_name: sc2_ai_1
+    hostname: ai-agent-1
+    volumes:
+      - ./ai_logs/agent1:/app/logs
+      - ./ai_agent:/app/ai_agent:ro
+    environment:
+      - AGENT_ID=1
+      - GAME_SERVER=host.docker.internal
+      - GAME_PORT=8000
+      - MONITORING_ENABLED=true
+      - PROMETHEUS_ENDPOINT=http://prometheus:9090
+    ports:
+      - "9091:9090"
+      - "8080:8080"
+    networks:
+      - sc2_network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  ai-agent-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.ai
+    container_name: sc2_ai_2
+    hostname: ai-agent-2
+    volumes:
+      - ./ai_logs/agent2:/app/logs
+      - ./ai_agent:/app/ai_agent:ro
+    environment:
+      - AGENT_ID=2
+      - GAME_SERVER=host.docker.internal
+      - GAME_PORT=8000
+      - MONITORING_ENABLED=true
+      - PROMETHEUS_ENDPOINT=http://prometheus:9090
+    ports:
+      - "9092:9090"
+      - "8081:8080"
+    networks:
+      - sc2_network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: sc2_prometheus
+    hostname: prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    networks:
+      - sc2_network
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: sc2_grafana
+    hostname: grafana
+    volumes:
+      - ./monitoring/grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=sc2admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    ports:
+      - "3000:3000"
+    networks:
+      - sc2_network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  redis:
+    image: redis:7-alpine
+    container_name: sc2_redis
+    hostname: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./monitoring/redis_data:/data
+    networks:
+      - sc2_network
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: sc2_redis_commander
+    hostname: redis-commander
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8082:8081"
+    networks:
+      - sc2_network
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+networks:
+  sc2_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  redis_data:
