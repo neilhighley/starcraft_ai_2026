@@ -2,7 +2,7 @@
 # Install this on the host machine, NOT in Docker containers
 
 # PySC2 - StarCraft 2 Learning Environment
-pysc2>=4.10.0
+pysc2
 s2clientprotocol>=4.10.1
 
 # Machine Learning (for optional ML on host)

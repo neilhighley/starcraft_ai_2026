@@ -107,7 +107,7 @@ def install_host_requirements():
     else:
         # Install basic requirements manually
         packages = [
-            "pysc2>=4.10.0",
+            "pysc2",
             "s2clientprotocol>=4.10.1",
             "fastapi>=0.109.0",
             "uvicorn[standard]>=0.27.0",
@@ -208,6 +208,7 @@ def check_sc2_installation():
         sc2_paths = [
             os.path.join(os.environ.get("ProgramFiles(x86)", ""), "StarCraft II"),
             os.path.join(os.environ.get("ProgramFiles", ""), "StarCraft II"),
+            os.path.join("T:\\act", "StarCraft II"),
         ]
     elif platform.system() == "Darwin":  # macOS
         sc2_paths = ["/Applications/StarCraft II"]
