@@ -128,3 +128,13 @@ Dockerfile
 .dockerignore
 
 Battle.net-Setup.exe
+# Grafana
+monitoring/grafana_data/
+grafana_data/
+*.db
+grafana.ini
+grafana.db
+
+# Prometheus data
+monitoring/prometheus_data/
+prometheus_data/
