@@ -1,63 +1,14 @@
-version: '3.8'
+# Docker Compose for SC2 AI - Monitoring Stack Only
+# AI agents run on HOST (need access to StarCraft 2 at T:\act\StarCraft II)
 
 services:
-  ai-agent-1:
-    build:
-      context: .
-      dockerfile: Dockerfile.ai
-    container_name: sc2_ai_1
-    hostname: ai-agent-1
-    volumes:
-      - ./ai_logs/agent1:/app/logs
-      - ./ai_agent:/app/ai_agent:ro
-    environment:
-      - AGENT_ID=1
-      - GAME_SERVER=host.docker.internal
-      - GAME_PORT=8000
-      - MONITORING_ENABLED=true
-      - PROMETHEUS_ENDPOINT=http://prometheus:9090
-    ports:
-      - "9091:9090"
-      - "8080:8080"
-    networks:
-      - sc2_network
-    depends_on:
-      - prometheus
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  ai-agent-2:
-    build:
-      context: .
-      dockerfile: Dockerfile.ai
-    container_name: sc2_ai_2
-    hostname: ai-agent-2
-    volumes:
-      - ./ai_logs/agent2:/app/logs
-      - ./ai_agent:/app/ai_agent:ro
-    environment:
-      - AGENT_ID=2
-      - GAME_SERVER=host.docker.internal
-      - GAME_PORT=8000
-      - MONITORING_ENABLED=true
-      - PROMETHEUS_ENDPOINT=http://prometheus:9090
-    ports:
-      - "9092:9090"
-      - "8081:8080"
-    networks:
-      - sc2_network
-    depends_on:
-      - prometheus
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+  # AI agents commented out - they run on host machine with SC2 access
+  # ai-agent-1:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.ai
+  #   container_name: sc2_ai_1
+  #   ...
 
   prometheus:
     image: prom/prometheus:latest

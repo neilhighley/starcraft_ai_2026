@@ -5,6 +5,9 @@
 pysc2
 s2clientprotocol>=4.10.1
 
+# IMPORTANT: protobuf must be <4.0 for s2clientprotocol compatibility
+protobuf>=3.19.0,<4.0.0
+
 # Machine Learning (for optional ML on host)
 torch>=2.0.0
 numpy>=1.24.0
