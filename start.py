@@ -13,8 +13,13 @@ import subprocess
 import time
 import argparse
 import signal
+import logging
 from typing import List, Tuple, Dict
 import socket
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # StarCraft 2 installation path
 SC2_PATH = r"T:\act\StarCraft II"
@@ -23,10 +28,15 @@ SC2_PATH = r"T:\act\StarCraft II"
 class StartupOrchestrator:
     """Manages startup of all SC2 AI components"""
 
-    def __init__(self, sc2_path: str = SC2_PATH):
+    def __init__(self, sc2_path: str = SC2_PATH, model1: str = "simple", model2: str = "simple",
+                 map_name: str = "Simple64", episodes: int = 1):
         self.processes: Dict[str, subprocess.Popen] = {}
         self.running = False
         self.sc2_path = sc2_path
+        self.model1 = model1
+        self.model2 = model2
+        self.map_name = map_name
+        self.episodes = episodes
         self.python_exe = (
             "host_env/Scripts/python.exe" if os.name == "nt" else "host_env/bin/python"
         )
@@ -149,6 +159,9 @@ class StartupOrchestrator:
     def start_game(self) -> bool:
         """Start the SC2 game with both AI agents"""
         print("🎮 Starting StarCraft 2 with AI agents...")
+        print(f"   Map: {self.map_name}")
+        print(f"   Agent 1 model: {self.model1}")
+        print(f"   Agent 2 model: {self.model2}")
 
         try:
             # Set SC2PATH environment variable
@@ -160,9 +173,11 @@ class StartupOrchestrator:
                 [
                     self.python_exe, 
                     "run_agents.py",
-                    f"--map=Simple64",
-                    f"--episodes=1",
+                    f"--map={self.map_name}",
+                    f"--episodes={self.episodes}",
                     f"--sc2_path={self.sc2_path}",
+                    f"--model1={self.model1}",
+                    f"--model2={self.model2}",
                     "--visualize=True",
                 ],
                 stdout=None,  # Let output go to console
@@ -350,11 +365,20 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python start.py                    # Start all components
-  python start.py --status           # Check status only
-  python start.py --stop             # Stop all components
-  python start.py --check            # Check prerequisites only
-  python start.py --sc2-path "D:\\Games\\StarCraft II"  # Custom SC2 path
+  python start.py                              # Start with default simple agents
+  python start.py --model1=random --model2=heuristic  # Use specific agents
+  python start.py --list-models                # Show available models
+  python start.py --download-models            # Download all pretrained models
+  python start.py --interactive                # Interactive model selection
+  python start.py --map=Flat64 --episodes=5    # Custom map and episodes
+  python start.py --status                     # Check status only
+  python start.py --stop                       # Stop all components
+
+Available Models:
+  Built-in:    simple, random, heuristic
+  Pretrained:  zerg_rush, terran_macro, protoss_gateway
+  RL:          ppo, dqn, a2c
+  Custom:      /path/to/your/model.pt
         """,
     )
 
@@ -373,10 +397,76 @@ Examples:
         default=SC2_PATH,
         help=f"Path to StarCraft 2 installation (default: {SC2_PATH})",
     )
+    
+    # Model selection arguments
+    parser.add_argument(
+        "--model1",
+        type=str,
+        default="protoss_gateway",
+        help="Model for Agent 1 (default: protoss_gateway)",
+    )
+    parser.add_argument(
+        "--model2",
+        type=str,
+        default="zerg_rush",
+        help="Model for Agent 2 (default: zerg_rush)",
+    )
+    parser.add_argument(
+        "--list-models",
+        action="store_true",
+        help="List available models and exit",
+    )
+    parser.add_argument(
+        "--download-models",
+        action="store_true",
+        help="Download all pretrained models",
+    )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Interactive model selection",
+    )
+    
+    # Game configuration
+    parser.add_argument(
+        "--map",
+        type=str,
+        default="Simple64",
+        help="Map name (default: Simple64)",
+    )
+    parser.add_argument(
+        "--episodes",
+        type=int,
+        default=1,
+        help="Number of episodes to run (default: 1)",
+    )
 
     args = parser.parse_args()
+    
+    # Handle special model commands (delegate to run_agents.py)
+    if args.list_models:
+        subprocess.run([
+            "host_env/Scripts/python.exe" if os.name == "nt" else "host_env/bin/python",
+            "run_agents.py",
+            "--list_models"
+        ])
+        return 0
+    
+    if args.download_models:
+        subprocess.run([
+            "host_env/Scripts/python.exe" if os.name == "nt" else "host_env/bin/python",
+            "run_agents.py",
+            "--download_models"
+        ])
+        return 0
 
-    orchestrator = StartupOrchestrator(sc2_path=args.sc2_path)
+    orchestrator = StartupOrchestrator(
+        sc2_path=args.sc2_path,
+        model1=args.model1,
+        model2=args.model2,
+        map_name=args.map,
+        episodes=args.episodes,
+    )
 
     if args.check:
         print("🔍 Checking prerequisites...\n")
