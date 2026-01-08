@@ -30,46 +30,50 @@ MODEL_ALIASES = {
         "class": "RandomAI",
         "description": "Random action selection",
     },
-    # Pre-trained models (download from sources)
+    # Pre-trained models (NOT YET AVAILABLE - train your own!)
+    # These will fall back to scripted agents until you train and save models
     "zerg_rush": {
         "type": "pretrained",
         "path": "models/zerg_rush_v1.pt",
-        "download_url": "https://github.com/example/sc2-models/releases/download/v1/zerg_rush_v1.pt",
+        "fallback": "zerg",  # Use scripted zerg agent if model not found
         "race": "Zerg",
-        "description": "Aggressive Zerg rush strategy",
+        "description": "Aggressive Zerg rush strategy (train your own!)",
     },
     "terran_macro": {
         "type": "pretrained",
         "path": "models/terran_macro_v2.pt",
-        "download_url": "https://github.com/example/sc2-models/releases/download/v1/terran_macro_v2.pt",
+        "fallback": "heuristic",
         "race": "Terran",
-        "description": "Macro-focused Terran strategy",
+        "description": "Macro-focused Terran strategy (train your own!)",
     },
     "protoss_gateway": {
         "type": "pretrained",
         "path": "models/protoss_gateway_v1.pt",
-        "download_url": "https://github.com/example/sc2-models/releases/download/v1/protoss_gateway_v1.pt",
+        "fallback": "protoss",  # Use scripted protoss agent if model not found
         "race": "Protoss",
-        "description": "Gateway-based Protoss strategy",
+        "description": "Gateway-based Protoss strategy (train your own!)",
     },
-    # RL models
+    # RL models - placeholders for training
     "ppo": {
         "type": "rl",
         "algorithm": "PPO",
         "path": "models/ppo_default.pt",
-        "description": "Proximal Policy Optimization agent",
+        "fallback": "heuristic",
+        "description": "Proximal Policy Optimization agent (train your own!)",
     },
     "dqn": {
         "type": "rl",
         "algorithm": "DQN",
         "path": "models/dqn_default.pt",
-        "description": "Deep Q-Network agent",
+        "fallback": "heuristic",
+        "description": "Deep Q-Network agent (train your own!)",
     },
     "a2c": {
         "type": "rl",
         "algorithm": "A2C",
         "path": "models/a2c_default.pt",
-        "description": "Advantage Actor-Critic agent",
+        "fallback": "heuristic",
+        "description": "Advantage Actor-Critic agent (train your own!)",
     },
 }
 

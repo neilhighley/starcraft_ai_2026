@@ -68,6 +68,7 @@ To use different AI agents, modify this file:
 import os
 import sys
 import time
+import random
 import logging
 from typing import List
 
@@ -78,7 +79,7 @@ FLAGS = flags.FLAGS
 
 # Define our own flags
 flags.DEFINE_string("map", "Simple64", "Map name")
-flags.DEFINE_integer("episodes", 1, "Number of episodes")
+flags.DEFINE_integer("episodes", 2, "Number of episodes")
 flags.DEFINE_integer("steps", 0, "Max steps per episode (0=unlimited)")
 flags.DEFINE_integer("step_mul", 8, "Game steps per agent step")
 flags.DEFINE_bool("realtime", False, "Run in realtime")
@@ -130,9 +131,61 @@ from ai_agent.model_registry import ModelRegistry, MODEL_ALIASES
 # Custom: Provide path to .pt file
 # =============================================================================
 
+# Unit type IDs (from pysc2.lib.units)
+from pysc2.lib import units
+
+# Common unit type IDs
+UNIT_TYPES = {
+    # Protoss
+    'nexus': 59,
+    'probe': 84,
+    'pylon': 60,
+    'gateway': 62,
+    'zealot': 73,
+    'cyberneticscore': 72,
+    'stalker': 74,
+    'assimilator': 61,
+    # Zerg
+    'hatchery': 86,
+    'drone': 104,
+    'overlord': 106,
+    'spawningpool': 89,
+    'zergling': 105,
+    'queen': 126,
+    'extractor': 88,
+    'larva': 151,
+    # Terran
+    'commandcenter': 18,
+    'scv': 45,
+    'supplydepot': 19,
+    'barracks': 21,
+    'marine': 48,
+    'refinery': 20,
+}
+
+
+def get_units_by_type(obs, unit_type_id, alliance=1):
+    """Get units of a specific type. alliance: 1=self, 4=enemy"""
+    units_list = []
+    if hasattr(obs.observation, 'feature_units'):
+        for unit in obs.observation.feature_units:
+            if unit.unit_type == unit_type_id and unit.alliance == alliance:
+                units_list.append(unit)
+    return units_list
+
+
+def get_my_units(obs):
+    """Get all my units"""
+    units_list = []
+    if hasattr(obs.observation, 'feature_units'):
+        for unit in obs.observation.feature_units:
+            if unit.alliance == 1:  # Self
+                units_list.append(unit)
+    return units_list
+
 
 class SimpleAgent(base_agent.BaseAgent):
-    """A simple scripted agent"""
+    """A simple scripted agent that does basic macro"""
     
     def __init__(self, agent_id: int = 1, name: str = "Simple"):
         super().__init__()
@@ -145,8 +198,6 @@ class SimpleAgent(base_agent.BaseAgent):
         super().step(obs)
         self.action_count += 1
         
-        # Simple logic: just do no_op for now
-        # Can be extended with actual strategy
         if self.action_count % 100 == 0:
             logger.info(f"Agent {self.agent_id} ({self.name}): Step {self.action_count}")
         
@@ -166,41 +217,17 @@ class RandomAgent(base_agent.BaseAgent):
         super().step(obs)
         import random
         
-        # Get available actions
         available_actions = obs.observation.available_actions
         
         if len(available_actions) > 0:
-            # Select random action
             action_id = random.choice(available_actions)
             action_func = actions.FUNCTIONS[action_id]
             
-            # Build action with random arguments
             args = []
             for arg in action_func.args:
-                if arg.name == 'screen' or arg.name == 'minimap':
-                    # Random point on screen/minimap
-                    args.append([random.randint(0, 83), random.randint(0, 83)])
-                elif arg.name == 'screen2':
+                if arg.name in ['screen', 'minimap', 'screen2']:
                     args.append([random.randint(0, 83), random.randint(0, 83)])
                 elif arg.name == 'queued':
-                    args.append([random.randint(0, 1)])
-                elif arg.name == 'select_point_act':
-                    args.append([random.randint(0, 3)])
-                elif arg.name == 'select_add':
-                    args.append([random.randint(0, 1)])
-                elif arg.name == 'control_group_act':
-                    args.append([random.randint(0, 4)])
-                elif arg.name == 'control_group_id':
-                    args.append([random.randint(0, 9)])
-                elif arg.name == 'select_unit_act':
-                    args.append([random.randint(0, 3)])
-                elif arg.name == 'select_unit_id':
-                    args.append([0])  # First unit
-                elif arg.name == 'select_worker':
-                    args.append([random.randint(0, 3)])
-                elif arg.name == 'build_queue_id':
-                    args.append([0])
-                elif arg.name == 'unload_id':
                     args.append([0])
                 else:
                     args.append([0])
@@ -210,34 +237,532 @@ class RandomAgent(base_agent.BaseAgent):
         return actions.FUNCTIONS.no_op()
 
 
+class ScriptedProtossAgent(base_agent.BaseAgent):
+    """Scripted Protoss agent that builds units and attacks"""
+    
+    def __init__(self, agent_id: int = 1):
+        super().__init__()
+        self.agent_id = agent_id
+        self.name = "ScriptedProtoss"
+        self.step_count = 0
+        self.attack_sent = False
+        
+    def step(self, obs):
+        super().step(obs)
+        self.step_count += 1
+        
+        available = obs.observation.available_actions
+        minerals = obs.observation.player.minerals
+        food_used = obs.observation.player.food_used
+        food_cap = obs.observation.player.food_cap
+        
+        # Log every 50 steps
+        if self.step_count % 50 == 0:
+            logger.info(f"Protoss Agent: Step {self.step_count}, Minerals: {minerals}, Supply: {food_used}/{food_cap}")
+        
+        # Priority 1: Build Pylon if supply blocked
+        if food_cap - food_used <= 2 and minerals >= 100:
+            if actions.FUNCTIONS.Build_Pylon_screen.id in available:
+                # Build pylon at random valid location
+                return actions.FUNCTIONS.Build_Pylon_screen("now", [30 + (self.step_count % 20), 30])
+        
+        # Priority 2: Build Gateway
+        if minerals >= 150:
+            if actions.FUNCTIONS.Build_Gateway_screen.id in available:
+                return actions.FUNCTIONS.Build_Gateway_screen("now", [40, 35])
+        
+        # Priority 3: Train Zealots
+        if minerals >= 100:
+            if actions.FUNCTIONS.Train_Zealot_quick.id in available:
+                return actions.FUNCTIONS.Train_Zealot_quick("now")
+        
+        # Priority 4: Train Probes (up to 20)
+        if minerals >= 50 and food_used < 20:
+            if actions.FUNCTIONS.Train_Probe_quick.id in available:
+                return actions.FUNCTIONS.Train_Probe_quick("now")
+        
+        # Priority 5: Select idle workers to mine
+        if actions.FUNCTIONS.select_idle_worker.id in available:
+            return actions.FUNCTIONS.select_idle_worker("select")
+        
+        # Priority 6: Send idle workers to harvest
+        if actions.FUNCTIONS.Harvest_Gather_screen.id in available:
+            return actions.FUNCTIONS.Harvest_Gather_screen("now", [40, 40])
+        
+        # Priority 7: Attack when we have army
+        if food_used >= 30 and not self.attack_sent:
+            if actions.FUNCTIONS.Attack_minimap.id in available:
+                self.attack_sent = True
+                logger.info("Protoss Agent: Sending attack!")
+                return actions.FUNCTIONS.Attack_minimap("now", [50, 50])
+        
+        # Priority 8: Select army
+        if actions.FUNCTIONS.select_army.id in available:
+            return actions.FUNCTIONS.select_army("select")
+        
+        # Default: Select Nexus to train more units
+        if actions.FUNCTIONS.select_point.id in available:
+            return actions.FUNCTIONS.select_point("select", [30, 30])
+        
+        return actions.FUNCTIONS.no_op()
+
+
+class ScriptedZergAgent(base_agent.BaseAgent):
+    """Scripted Zerg agent that builds units and attacks"""
+    
+    def __init__(self, agent_id: int = 1):
+        super().__init__()
+        self.agent_id = agent_id
+        self.name = "ScriptedZerg"
+        self.step_count = 0
+        self.pool_built = False
+        self.attack_sent = False
+        
+    def step(self, obs):
+        super().step(obs)
+        self.step_count += 1
+        
+        available = obs.observation.available_actions
+        minerals = obs.observation.player.minerals
+        food_used = obs.observation.player.food_used
+        food_cap = obs.observation.player.food_cap
+        larva_count = obs.observation.player.larva_count if hasattr(obs.observation.player, 'larva_count') else 3
+        
+        # Log every 50 steps
+        if self.step_count % 50 == 0:
+            logger.info(f"Zerg Agent: Step {self.step_count}, Minerals: {minerals}, Supply: {food_used}/{food_cap}")
+        
+        # Priority 1: Build Overlord if supply blocked
+        if food_cap - food_used <= 2 and minerals >= 100:
+            if actions.FUNCTIONS.Train_Overlord_quick.id in available:
+                return actions.FUNCTIONS.Train_Overlord_quick("now")
+        
+        # Priority 2: Build Spawning Pool
+        if minerals >= 200 and not self.pool_built:
+            if actions.FUNCTIONS.Build_SpawningPool_screen.id in available:
+                self.pool_built = True
+                return actions.FUNCTIONS.Build_SpawningPool_screen("now", [35, 35])
+        
+        # Priority 3: Train Zerglings
+        if minerals >= 50:
+            if actions.FUNCTIONS.Train_Zergling_quick.id in available:
+                return actions.FUNCTIONS.Train_Zergling_quick("now")
+        
+        # Priority 4: Train Drones (up to 16)
+        if minerals >= 50 and food_used < 16:
+            if actions.FUNCTIONS.Train_Drone_quick.id in available:
+                return actions.FUNCTIONS.Train_Drone_quick("now")
+        
+        # Priority 5: Select Larva
+        if actions.FUNCTIONS.select_larva.id in available:
+            return actions.FUNCTIONS.select_larva("select")
+        
+        # Priority 6: Select idle workers to mine
+        if actions.FUNCTIONS.select_idle_worker.id in available:
+            return actions.FUNCTIONS.select_idle_worker("select")
+        
+        # Priority 7: Send idle workers to harvest
+        if actions.FUNCTIONS.Harvest_Gather_screen.id in available:
+            return actions.FUNCTIONS.Harvest_Gather_screen("now", [40, 40])
+        
+        # Priority 8: Attack when we have army
+        if food_used >= 30 and not self.attack_sent:
+            if actions.FUNCTIONS.Attack_minimap.id in available:
+                self.attack_sent = True
+                logger.info("Zerg Agent: Sending attack!")
+                return actions.FUNCTIONS.Attack_minimap("now", [50, 50])
+        
+        # Priority 9: Select army
+        if actions.FUNCTIONS.select_army.id in available:
+            return actions.FUNCTIONS.select_army("select")
+        
+        # Default: Select Hatchery
+        if actions.FUNCTIONS.select_point.id in available:
+            return actions.FUNCTIONS.select_point("select", [35, 35])
+        
+        return actions.FUNCTIONS.no_op()
+
+
 class HeuristicAgent(base_agent.BaseAgent):
-    """Rule-based agent with basic strategies"""
+    """Generic heuristic agent that adapts to any race"""
     
     def __init__(self, agent_id: int = 1):
         super().__init__()
         self.agent_id = agent_id
         self.name = "Heuristic"
-        self.base_built = False
+        self.step_count = 0
+        self.attack_sent = False
         
     def step(self, obs):
-        """Execute heuristic-based action"""
+        super().step(obs)
+        self.step_count += 1
+        
+        available = obs.observation.available_actions
+        minerals = obs.observation.player.minerals
+        food_used = obs.observation.player.food_used
+        food_cap = obs.observation.player.food_cap
+        
+        # Supply building
+        if food_cap - food_used <= 2 and minerals >= 100:
+            # Try all race supply buildings
+            if actions.FUNCTIONS.Build_Pylon_screen.id in available:
+                return actions.FUNCTIONS.Build_Pylon_screen("now", [30 + (self.step_count % 10), 30])
+            if actions.FUNCTIONS.Build_SupplyDepot_screen.id in available:
+                return actions.FUNCTIONS.Build_SupplyDepot_screen("now", [30 + (self.step_count % 10), 30])
+            if actions.FUNCTIONS.Train_Overlord_quick.id in available:
+                return actions.FUNCTIONS.Train_Overlord_quick("now")
+        
+        # Build production
+        if minerals >= 150:
+            if actions.FUNCTIONS.Build_Gateway_screen.id in available:
+                return actions.FUNCTIONS.Build_Gateway_screen("now", [40, 35])
+            if actions.FUNCTIONS.Build_Barracks_screen.id in available:
+                return actions.FUNCTIONS.Build_Barracks_screen("now", [40, 35])
+            if actions.FUNCTIONS.Build_SpawningPool_screen.id in available:
+                return actions.FUNCTIONS.Build_SpawningPool_screen("now", [40, 35])
+        
+        # Train army
+        if minerals >= 50:
+            if actions.FUNCTIONS.Train_Zealot_quick.id in available:
+                return actions.FUNCTIONS.Train_Zealot_quick("now")
+            if actions.FUNCTIONS.Train_Marine_quick.id in available:
+                return actions.FUNCTIONS.Train_Marine_quick("now")
+            if actions.FUNCTIONS.Train_Zergling_quick.id in available:
+                return actions.FUNCTIONS.Train_Zergling_quick("now")
+        
+        # Train workers
+        if minerals >= 50 and food_used < 20:
+            if actions.FUNCTIONS.Train_Probe_quick.id in available:
+                return actions.FUNCTIONS.Train_Probe_quick("now")
+            if actions.FUNCTIONS.Train_SCV_quick.id in available:
+                return actions.FUNCTIONS.Train_SCV_quick("now")
+            if actions.FUNCTIONS.Train_Drone_quick.id in available:
+                return actions.FUNCTIONS.Train_Drone_quick("now")
+        
+        # Select idle workers
+        if actions.FUNCTIONS.select_idle_worker.id in available:
+            return actions.FUNCTIONS.select_idle_worker("select")
+        
+        # Harvest
+        if actions.FUNCTIONS.Harvest_Gather_screen.id in available:
+            return actions.FUNCTIONS.Harvest_Gather_screen("now", [40, 40])
+        
+        # Attack
+        if food_used >= 25 and not self.attack_sent:
+            if actions.FUNCTIONS.Attack_minimap.id in available:
+                self.attack_sent = True
+                return actions.FUNCTIONS.Attack_minimap("now", [50, 50])
+        
+        # Select army
+        if actions.FUNCTIONS.select_army.id in available:
+            return actions.FUNCTIONS.select_army("select")
+        
+        # Select larva for Zerg
+        if actions.FUNCTIONS.select_larva.id in available:
+            return actions.FUNCTIONS.select_larva("select")
+        
+        # Select base
+        if actions.FUNCTIONS.select_point.id in available:
+            return actions.FUNCTIONS.select_point("select", [30, 30])
+        
+        return actions.FUNCTIONS.no_op()
+
+
+class ZergBotAgent(base_agent.BaseAgent):
+    """
+    Advanced Zerg agent based on CharlieRuiz's ZergBot.
+    Source: https://github.com/CharlieRuiz/IA/blob/main/ZergBot/ZergBot.py
+    
+    Features:
+    - Builds spawning pool, extractors, lair, spire, hydralisk den, lurker den
+    - Trains drones, zerglings, mutalisks, corruptors, hydralisks, lurkers
+    - Expands to second base
+    - Coordinates attacks with mixed army
+    """
+    
+    def __init__(self, agent_id: int = 1):
+        super().__init__()
+        self.agent_id = agent_id
+        self.name = "ZergBot"
+        self.attack_coordinates = None
+        self.safe_coordinates = None
+        self.expand_coordinates = None
+        self.ban = 0  # State flag for expansion logic
+        self.hatch = True
+        self.harvest_gas_mode = False
+        
+    def unit_type_is_selected(self, obs, unit_type):
+        """Check if a specific unit type is selected"""
+        if (len(obs.observation.single_select) > 0 and
+                obs.observation.single_select[0].unit_type == unit_type):
+            return True
+        if (len(obs.observation.multi_select) > 0 and
+                obs.observation.multi_select[0].unit_type == unit_type):
+            return True
+        return False
+    
+    def get_units_by_type(self, obs, unit_type):
+        """Get all units of a specific type"""
+        return [unit for unit in obs.observation.feature_units
+                if unit.unit_type == unit_type]
+    
+    def can_do(self, obs, action):
+        """Check if an action is available"""
+        return action in obs.observation.available_actions
+    
+    def select_drone(self, obs):
+        """Select a random drone"""
+        drones = self.get_units_by_type(obs, units.Zerg.Drone)
+        if len(drones) > 0:
+            drone = random.choice(drones)
+            if drone.x >= 0 and drone.y >= 0:
+                return actions.FUNCTIONS.select_point("select_all_type", (drone.x, drone.y))
+        return None
+    
+    def select_larva(self, obs):
+        """Select larva for training"""
+        larvae = self.get_units_by_type(obs, units.Zerg.Larva)
+        if len(larvae) > 0:
+            larva = random.choice(larvae)
+            if larva.x >= 0 and larva.y >= 0:
+                return actions.FUNCTIONS.select_point("select_all_type", (larva.x, larva.y))
+        return None
+    
+    def build_spawning_pool(self, obs):
+        """Build a spawning pool if none exists"""
+        pools = self.get_units_by_type(obs, units.Zerg.SpawningPool)
+        if len(pools) == 0:
+            if self.unit_type_is_selected(obs, units.Zerg.Drone):
+                if self.can_do(obs, actions.FUNCTIONS.Build_SpawningPool_screen.id):
+                    x = random.randint(10, 50)
+                    y = random.randint(10, 50)
+                    return actions.FUNCTIONS.Build_SpawningPool_screen("now", (x, y))
+            return self.select_drone(obs)
+        return None
+    
+    def build_extractor(self, obs):
+        """Build extractors on geysers"""
+        extractors = self.get_units_by_type(obs, units.Zerg.Extractor)
+        if len(extractors) < 2:
+            if self.unit_type_is_selected(obs, units.Zerg.Drone):
+                if self.can_do(obs, actions.FUNCTIONS.Build_Extractor_screen.id):
+                    geysers = self.get_units_by_type(obs, units.Neutral.VespeneGeyser)
+                    if len(geysers) > 0:
+                        geyser = random.choice(geysers)
+                        return actions.FUNCTIONS.Build_Extractor_screen("now", (geyser.x, geyser.y))
+            return self.select_drone(obs)
+        return None
+    
+    def build_lair(self, obs):
+        """Morph hatchery into lair"""
+        lairs = self.get_units_by_type(obs, units.Zerg.Lair)
+        if len(lairs) == 0:
+            if self.unit_type_is_selected(obs, units.Zerg.Hatchery):
+                if self.can_do(obs, actions.FUNCTIONS.Morph_Lair_quick.id):
+                    return actions.FUNCTIONS.Morph_Lair_quick("now")
+            hatcheries = self.get_units_by_type(obs, units.Zerg.Hatchery)
+            if len(hatcheries) > 0:
+                hatch = random.choice(hatcheries)
+                if hatch.x >= 0 and hatch.y >= 0:
+                    return actions.FUNCTIONS.select_point("select_all_type", (hatch.x, hatch.y))
+        return None
+    
+    def build_spire(self, obs):
+        """Build a spire for air units"""
+        spires = self.get_units_by_type(obs, units.Zerg.Spire)
+        if len(spires) == 0:
+            if self.unit_type_is_selected(obs, units.Zerg.Drone):
+                if self.can_do(obs, actions.FUNCTIONS.Build_Spire_screen.id):
+                    x = random.randint(10, 50)
+                    y = random.randint(10, 50)
+                    return actions.FUNCTIONS.Build_Spire_screen("now", (x, y))
+            return self.select_drone(obs)
+        return None
+    
+    def build_hydralisk_den(self, obs):
+        """Build hydralisk den"""
+        dens = self.get_units_by_type(obs, units.Zerg.HydraliskDen)
+        if len(dens) == 0:
+            if self.unit_type_is_selected(obs, units.Zerg.Drone):
+                if self.can_do(obs, actions.FUNCTIONS.Build_HydraliskDen_screen.id):
+                    x = random.randint(10, 50)
+                    y = random.randint(10, 50)
+                    return actions.FUNCTIONS.Build_HydraliskDen_screen("now", (x, y))
+            return self.select_drone(obs)
+        return None
+    
+    def train_unit(self, obs, unit_type):
+        """Train a specific unit type from larva"""
+        if self.unit_type_is_selected(obs, units.Zerg.Larva):
+            free_supply = obs.observation.player.food_cap - obs.observation.player.food_used
+            
+            # Build overlords if supply blocked
+            if free_supply < 4:
+                if self.can_do(obs, actions.FUNCTIONS.Train_Overlord_quick.id):
+                    return actions.FUNCTIONS.Train_Overlord_quick("now")
+            
+            if unit_type == "zergling":
+                if self.can_do(obs, actions.FUNCTIONS.Train_Zergling_quick.id):
+                    return actions.FUNCTIONS.Train_Zergling_quick("now")
+            elif unit_type == "drone":
+                if self.can_do(obs, actions.FUNCTIONS.Train_Drone_quick.id):
+                    return actions.FUNCTIONS.Train_Drone_quick("now")
+            elif unit_type == "mutalisk":
+                if self.can_do(obs, actions.FUNCTIONS.Train_Mutalisk_quick.id):
+                    return actions.FUNCTIONS.Train_Mutalisk_quick("now")
+            elif unit_type == "hydralisk":
+                if self.can_do(obs, actions.FUNCTIONS.Train_Hydralisk_quick.id):
+                    return actions.FUNCTIONS.Train_Hydralisk_quick("now")
+            elif unit_type == "corruptor":
+                if self.can_do(obs, actions.FUNCTIONS.Train_Corruptor_quick.id):
+                    return actions.FUNCTIONS.Train_Corruptor_quick("now")
+        
+        return self.select_larva(obs)
+    
+    def attack(self, obs):
+        """Attack with army when ready"""
+        zerglings = self.get_units_by_type(obs, units.Zerg.Zergling)
+        hydralisks = self.get_units_by_type(obs, units.Zerg.Hydralisk)
+        mutalisks = self.get_units_by_type(obs, units.Zerg.Mutalisk)
+        
+        army_size = len(zerglings) + len(hydralisks) + len(mutalisks)
+        
+        if army_size >= 10:
+            # Check if army is selected
+            if (self.unit_type_is_selected(obs, units.Zerg.Zergling) or
+                self.unit_type_is_selected(obs, units.Zerg.Hydralisk) or
+                self.unit_type_is_selected(obs, units.Zerg.Mutalisk)):
+                if self.can_do(obs, actions.FUNCTIONS.Attack_minimap.id):
+                    return actions.FUNCTIONS.Attack_minimap("now", self.attack_coordinates)
+            
+            # Select army
+            if self.can_do(obs, actions.FUNCTIONS.select_army.id):
+                return actions.FUNCTIONS.select_army("select")
+        
+        return None
+    
+    def harvest_minerals(self, obs):
+        """Send drones to harvest minerals"""
+        hatcheries = self.get_units_by_type(obs, units.Zerg.Hatchery)
+        lairs = self.get_units_by_type(obs, units.Zerg.Lair)
+        
+        if len(hatcheries) > 0 or len(lairs) > 0:
+            if self.unit_type_is_selected(obs, units.Zerg.Drone):
+                if self.can_do(obs, actions.FUNCTIONS.Harvest_Gather_screen.id):
+                    minerals = self.get_units_by_type(obs, units.Neutral.MineralField)
+                    if len(minerals) > 0:
+                        mineral = random.choice(minerals)
+                        return actions.FUNCTIONS.Harvest_Gather_screen("now", (mineral.x, mineral.y))
+            
+            drones = self.get_units_by_type(obs, units.Zerg.Drone)
+            if len(drones) > 0:
+                drone = random.choice(drones)
+                if drone.x >= 0 and drone.y >= 0:
+                    return actions.FUNCTIONS.select_point("select", (drone.x, drone.y))
+        
+        return None
+    
+    def step(self, obs):
         super().step(obs)
         
-        # Simple heuristic: train workers early, then attack
-        available = obs.observation.available_actions
-        
-        # Priority: train workers if possible
-        if actions.FUNCTIONS.Train_Probe_quick.id in available:
-            return actions.FUNCTIONS.Train_Probe_quick("now")
-        if actions.FUNCTIONS.Train_SCV_quick.id in available:
-            return actions.FUNCTIONS.Train_SCV_quick("now")
-        if actions.FUNCTIONS.Train_Drone_quick.id in available:
-            return actions.FUNCTIONS.Train_Drone_quick("now")
+        # Initialize attack coordinates based on spawn position
+        if obs.first():
+            player_y, player_x = (obs.observation.feature_minimap.player_relative ==
+                                  features.PlayerRelative.SELF).nonzero()
             
-        # Attack if possible
-        if actions.FUNCTIONS.Attack_minimap.id in available:
-            # Attack enemy base (approximate location)
-            return actions.FUNCTIONS.Attack_minimap("now", [50, 50])
+            if len(player_x) > 0 and len(player_y) > 0:
+                xmean = player_x.mean()
+                ymean = player_y.mean()
+                
+                if xmean <= 31 and ymean <= 31:
+                    self.attack_coordinates = [49, 49]
+                    self.safe_coordinates = [15, 15]
+                    self.expand_coordinates = [49, 22]
+                else:
+                    self.attack_coordinates = [15, 15]
+                    self.safe_coordinates = [49, 49]
+                    self.expand_coordinates = [19, 49]
+            else:
+                # Default coordinates if detection fails
+                self.attack_coordinates = [49, 49]
+                self.safe_coordinates = [15, 15]
+        
+        # Priority 1: Attack if we have enough army
+        attack_action = self.attack(obs)
+        if attack_action:
+            return attack_action
+        
+        hatcheries = self.get_units_by_type(obs, units.Zerg.Hatchery)
+        lairs = self.get_units_by_type(obs, units.Zerg.Lair)
+        
+        # Priority 2: Build spawning pool
+        if len(hatcheries) >= 1 or len(lairs) >= 1:
+            pool_action = self.build_spawning_pool(obs)
+            if pool_action:
+                return pool_action
+        
+        # Priority 3: Train drones (up to 16)
+        drones = self.get_units_by_type(obs, units.Zerg.Drone)
+        if len(drones) < 16:
+            train_action = self.train_unit(obs, "drone")
+            if train_action:
+                return train_action
+        
+        # Priority 4: Train zerglings
+        zerglings = self.get_units_by_type(obs, units.Zerg.Zergling)
+        if len(zerglings) < 12:
+            train_action = self.train_unit(obs, "zergling")
+            if train_action:
+                return train_action
+        
+        # Priority 5: Build extractor
+        extractor_action = self.build_extractor(obs)
+        if extractor_action:
+            return extractor_action
+        
+        # Priority 6: Build lair (enables advanced units)
+        lair_action = self.build_lair(obs)
+        if lair_action:
+            return lair_action
+        
+        # Priority 7: Build hydralisk den
+        lairs = self.get_units_by_type(obs, units.Zerg.Lair)
+        if len(lairs) > 0:
+            den_action = self.build_hydralisk_den(obs)
+            if den_action:
+                return den_action
+            
+            # Train hydralisks
+            hydralisks = self.get_units_by_type(obs, units.Zerg.Hydralisk)
+            if len(hydralisks) < 4:
+                train_action = self.train_unit(obs, "hydralisk")
+                if train_action:
+                    return train_action
+        
+        # Priority 8: Build spire
+        if len(lairs) > 0:
+            spire_action = self.build_spire(obs)
+            if spire_action:
+                return spire_action
+            
+            # Train mutalisks
+            spires = self.get_units_by_type(obs, units.Zerg.Spire)
+            if len(spires) > 0:
+                mutalisks = self.get_units_by_type(obs, units.Zerg.Mutalisk)
+                if len(mutalisks) < 4:
+                    train_action = self.train_unit(obs, "mutalisk")
+                    if train_action:
+                        return train_action
+        
+        # Priority 9: Harvest minerals
+        harvest_action = self.harvest_minerals(obs)
+        if harvest_action:
+            return harvest_action
+        
+        # Priority 10: More zerglings
+        train_action = self.train_unit(obs, "zergling")
+        if train_action:
+            return train_action
         
         return actions.FUNCTIONS.no_op()
 
@@ -282,19 +807,37 @@ def create_agent(model_name: str, agent_id: int, registry: ModelRegistry) -> bas
     elif model_name == "heuristic":
         return HeuristicAgent(agent_id=agent_id)
     
+    elif model_name == "scripted_protoss" or model_name == "protoss":
+        return ScriptedProtossAgent(agent_id=agent_id)
+    
+    elif model_name == "scripted_zerg" or model_name == "zerg":
+        return ScriptedZergAgent(agent_id=agent_id)
+    
+    elif model_name == "zergbot":
+        return ZergBotAgent(agent_id=agent_id)
+    
     elif model_name in MODEL_ALIASES:
         config = MODEL_ALIASES[model_name]
         
         if config["type"] in ["pretrained", "rl"]:
-            # Try to load the model
-            try:
-                model_data = registry.load_model(model_name, agent_id)
-                model_path = registry.models_dir / config["path"].split("/")[-1]
-                return PretrainedAgent(agent_id=agent_id, model_path=str(model_path), model_data=model_data)
-            except Exception as e:
-                logger.warning(f"Failed to load model {model_name}: {e}")
-                logger.info("Falling back to SimpleAgent")
-                return SimpleAgent(agent_id=agent_id, name=f"Simple(fallback from {model_name})")
+            # Check if model file exists
+            model_path = registry.models_dir / config["path"].split("/")[-1]
+            
+            if model_path.exists():
+                # Load the trained model
+                try:
+                    model_data = registry.load_model(model_name, agent_id)
+                    return PretrainedAgent(agent_id=agent_id, model_path=str(model_path), model_data=model_data)
+                except Exception as e:
+                    logger.warning(f"Failed to load model {model_name}: {e}")
+            
+            # Model doesn't exist - use fallback
+            fallback = config.get("fallback", "heuristic")
+            logger.info(f"Model '{model_name}' not trained yet. Using '{fallback}' agent instead.")
+            logger.info(f"To use this model, train and save to: {model_path}")
+            
+            # Recursively create the fallback agent
+            return create_agent(fallback, agent_id, registry)
         else:
             # Heuristic or random type
             if config["type"] == "heuristic":
@@ -307,8 +850,8 @@ def create_agent(model_name: str, agent_id: int, registry: ModelRegistry) -> bas
         return PretrainedAgent(agent_id=agent_id, model_path=model_name)
     
     else:
-        logger.warning(f"Unknown model: {model_name}, using SimpleAgent")
-        return SimpleAgent(agent_id=agent_id, name="Simple")
+        logger.warning(f"Unknown model: {model_name}, using HeuristicAgent")
+        return HeuristicAgent(agent_id=agent_id)
 
 
 def run_game(
@@ -341,10 +884,19 @@ def run_game(
     
     try:
         # Create environment with 2 agents
+        #select zerg vs zerg for both agents
+
+
+
+        # change the agent race here if needed
+        
+        
+        
+        
         with sc2_env.SC2Env(
             map_name=map_name,
             players=[
-                sc2_env.Agent(sc2_env.Race.protoss, name="SKYNET"),
+                sc2_env.Agent(sc2_env.Race.zerg, name="PESTS"),
                 sc2_env.Agent(sc2_env.Race.zerg, name="BUGS"),
             ],
             agent_interface_format=features.AgentInterfaceFormat(
@@ -395,7 +947,7 @@ def run_game(
                 
                 # Determine winner
                 if episode_reward[0] > episode_reward[1]:
-                    logger.info("  Winner: Agent 1 (Protoss)")
+                    logger.info("  Winner: Agent 1 (Zerg)")
                 elif episode_reward[1] > episode_reward[0]:
                     logger.info("  Winner: Agent 2 (Zerg)")
                 else:
@@ -415,11 +967,17 @@ def list_available_models():
     print("🤖 AVAILABLE MODELS")
     print("=" * 70)
     
-    # Built-in agents
-    print("\n📦 BUILT-IN AGENTS (always available):")
-    print(f"  {'simple':20s} - Basic no-op agent (default)")
+    # Scripted agents (recommended)
+    print("\n⭐ SCRIPTED AGENTS (recommended - actually play the game!):")
+    print(f"  {'protoss':20s} - Scripted Protoss: builds pylons, gateways, zealots")
+    print(f"  {'zerg':20s} - Scripted Zerg: builds pools, overlords, zerglings")
+    print(f"  {'zergbot':20s} - Advanced ZergBot: lair, hydras, mutas, coordinated attacks")
+    print(f"  {'heuristic':20s} - Generic AI that adapts to any race")
+    
+    # Basic agents
+    print("\n📦 BASIC AGENTS:")
+    print(f"  {'simple':20s} - Does nothing (no_op) - for testing")
     print(f"  {'random':20s} - Random action selection")
-    print(f"  {'heuristic':20s} - Rule-based AI with basic strategies")
     
     # Pretrained models
     print("\n🧠 PRETRAINED MODELS (auto-download):")
@@ -444,8 +1002,9 @@ def list_available_models():
     
     print("\n" + "=" * 70)
     print("USAGE: python run_agents.py --model1=<name> --model2=<name>")
-    print("       python run_agents.py --model1=ppo --model2=random")
-    print("       python run_agents.py --model1=/path/to/custom.pt --model2=simple")
+    print("       python run_agents.py --model1=protoss --model2=zerg")
+    print("       python run_agents.py --model1=zergbot --model2=protoss")
+    print("       python run_agents.py --model1=heuristic --model2=heuristic")
     print("=" * 70 + "\n")
 
 
